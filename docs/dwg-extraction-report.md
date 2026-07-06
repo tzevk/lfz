@@ -18,12 +18,15 @@
    closure is detected geometrically (coincident first/last vertex is stripped;
    remaining rings are treated as closed polygons).
 3. **Coverage & phase tagging.** Extraction is **zone-wide** (no extent filter):
-   every developable parcel in the drawing is seeded. Phases are then tagged by
-   `tools/tag_phases.py` using extent polygons (currently `phase1a-extent.wkt`
-   → “Phase 1A”, remainder “Future Phases”; add further phase WKTs to the
-   script's `PHASE_EXTENTS` list as boundaries become available — no code
-   change elsewhere). The extractor's `--extent-wkt` / `--extent-max-x` options
-   remain for extracting a single phase in isolation.
+   every developable parcel in the drawing is seeded. Phases are tagged from the
+   **development-phase boundary rings found in the DWG itself**: the drawing
+   legend declares Phase 1A (278 ha), 1B (113 ha), 2 (122 ha) and 3 (246 ha),
+   and closed rings matching those areas exist in model space on layer “0”
+   (found at 276.4 / 115.9 / 132.0 ha). `extract_plot_labels.py` assigns each
+   parcel the tightest phase ring containing its centroid; Phase 3 has no
+   closed ring in the current drawing, so its parcels are tagged
+   “Phase 3 / Future”. (`tag_phases.py` remains as an extent-WKT fallback for
+   parcels that cannot be ring-matched.)
 4. **Sliver filter.** Parcels below **0.1 ha** are drawing artefacts and removed.
 5. **Deduplication.** Duplicate rings (identical rounded centroid + area,
    overdrawn outlines) are collapsed.
@@ -50,8 +53,10 @@
 | Rings on layer `PLOT AREA` (whole drawing) | **414** |
 | ≥ 0.1 ha (sliver filter) | 137 |
 | After deduplication — **seeded parcels (complete zone)** | **124** |
-| — tagged Phase 1A | 55 |
-| — tagged Future Phases | 69 |
+| — Phase 1A | 50 |
+| — Phase 1B | 2 |
+| — Phase 2 | 28 |
+| — Phase 3 / Future | 44 |
 | Real drawing codes recovered | 91 |
 | Land-use classified from code prefix (i/l/u/c/m/cp/t) | 124 |
 | Locked (infrastructure/utility) | 8 |
@@ -110,10 +115,10 @@ Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs
 
 ## Known caveats
 
-1. **Phase boundaries.** The DWG contains no official phase-boundary layer.
-   `phase1a-extent.wkt` is derived from the verified Phase 1A parcel set;
-   parcels outside it are tagged “Future Phases”. Supply official phase
-   polygons to `tag_phases.py` for finer phase attribution.
+1. **Phase 3 boundary.** Phases 1A/1B/2 are tagged from closed boundary rings
+   in the DWG; Phase 3 (246 ha per the legend) exists only as unclosed
+   linework, so its parcels are tagged “Phase 3 / Future”. A closed Phase 3
+   polygon from the drawing office would complete the attribution.
 2. **Labels.** Real drawing codes/names are recovered from the DWG model space
    by `extract_plot_labels.py` (91 of 124 parcels). The remaining 33 parcels
    carry no ID label in the drawing and keep synthesised `IND-nnn` codes; they

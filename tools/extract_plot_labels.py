@@ -15,6 +15,10 @@ This script:
    recomputes areaHectares.
 5. Replaces synthesised IND-nnn codes (and placeholder names) with the real
    drawing codes/names; duplicate drawing codes get a b/c suffix.
+6. Tags each parcel's phase using the development-phase boundary rings found
+   in the DWG model space (Phase 1A/1B/2 exist as closed polylines on layer 0,
+   matching the drawing legend's quoted areas; parcels outside all rings are
+   tagged "Phase 3 / Future").
 
 Usage:
     python3 tools/extract_plot_labels.py [--dwg <path>] [--seed <path>] [--dry-run]
@@ -41,6 +45,17 @@ DEFAULT_SEED = ROOT / "src/LFZ.Infrastructure/Seed/plots-seed.json"
 CODE_PATTERN = re.compile(r"^(I|L|U|C|M|T|CP|RT|SIF|WH)\s?-?\s?(\d{1,3})\s?(?:/([A-Z]))?$", re.I)
 AREA_PATTERN = re.compile(r"([\d,.]+)\s*(?:SQ\.?\s?M|sq\s?m|SQM)", re.I)
 
+# Development-phase boundary rings drawn in model space on layer "0".
+# (name, legend area in ha, tolerance) — from the drawing legend:
+# PHASE 1A (278HA), PHASE 1B (113HA), PHASE 2 (122 HA), PHASE 3 (246 HA).
+PHASE_RING_SIGNATURES = [
+    ("Phase 1A", 278.0, 0.05),
+    ("Phase 1B", 113.0, 0.05),
+    ("Phase 2", 122.0, 0.10),
+    ("Phase 3", 246.0, 0.05),  # not present as a closed ring in the current drawing
+]
+FALLBACK_PHASE = "Phase 3 / Future"
+
 
 def clean_lines(raw: str) -> list[str]:
     """Strip MTEXT formatting codes and split into lines."""
@@ -58,19 +73,35 @@ def load_model_space(dwg_path: pathlib.Path):
 
     rings: list[Polygon] = []
     labels: list[tuple[Point, list[str]]] = []
+    phase_rings: list[tuple[str, Polygon]] = []
     for block in cad_image.block_entities.values:
+        is_model_space = getattr(block, "name", "") == "*Model_Space"
         for entity in block.entities:
             type_name = str(entity.type_name)
-            if getattr(entity, "layer_name", "") == "PLOT AREA" and type_name.endswith("LWPOLYLINE"):
+            if type_name.endswith("LWPOLYLINE"):
+                layer = getattr(entity, "layer_name", "")
+                if layer != "PLOT AREA" and not (is_model_space and layer == "0"):
+                    continue
                 lw = pycore.cast(CadLwPolyline, entity)
                 try:
                     pts = [(c.x, c.y) for c in lw.coordinates]
                 except Exception:
                     continue
-                if len(pts) >= 3:
-                    poly = Polygon(pts)
-                    if poly.is_valid and poly.area > 0:
-                        rings.append(poly)
+                if len(pts) < 3:
+                    continue
+                poly = Polygon(pts)
+                if not poly.is_valid or poly.area <= 0:
+                    continue
+                if layer == "PLOT AREA":
+                    rings.append(poly)
+                else:
+                    # candidate development-phase boundary on layer 0
+                    ha = poly.area / 1e4
+                    for name, legend_ha, tol in PHASE_RING_SIGNATURES:
+                        if abs(ha - legend_ha) / legend_ha <= tol and \
+                                not any(n == name for n, _ in phase_rings):
+                            phase_rings.append((name, poly))
+                            break
             elif type_name.endswith("MTEXT") or type_name.endswith(".TEXT"):
                 try:
                     if type_name.endswith("MTEXT"):
@@ -86,8 +117,9 @@ def load_model_space(dwg_path: pathlib.Path):
                     if lines:
                         labels.append((Point(ip.x, ip.y), lines))
 
-    print(f"Model space: {len(rings)} PLOT AREA rings, {len(labels)} text labels")
-    return rings, labels
+    print(f"Model space: {len(rings)} PLOT AREA rings, {len(labels)} text labels, "
+          f"phase rings: {[n for n, _ in phase_rings]}")
+    return rings, labels, phase_rings
 
 
 def assign_labels_to_rings(rings, labels):
@@ -200,8 +232,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    rings, labels = load_model_space(args.dwg)
+    rings, labels, phase_rings = load_model_space(args.dwg)
     ring_labels = assign_labels_to_rings(rings, labels)
+    # order phase rings smallest-first so nested containment picks the tightest
+    phase_rings.sort(key=lambda item: item[1].area)
 
     seed = json.loads(args.seed.read_text())
 
@@ -241,7 +275,15 @@ def main():
             plot["centroid"]["y"] = round(plot["centroid"]["y"] * k, 2)
         rescaled += 1
 
-        # 2b. real code and name — merge every label inside the ring,
+        # 2b. phase from the DWG development-phase rings (model-space frame)
+        idx = matches.get(plot["code"])
+        if idx is not None:
+            model_centroid = rings[idx].centroid
+            plot["phase"] = next(
+                (name for name, ring in phase_rings if ring.contains(model_centroid)),
+                FALLBACK_PHASE)
+
+        # 2c. real code and name — merge every label inside the ring,
         # area-matching label first (the drawing is authoritative)
         idx = matches.get(plot["code"])
         if idx is None or idx not in ring_labels:
