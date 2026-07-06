@@ -139,6 +139,34 @@ def order_label_sets(ring: Polygon, label_sets):
 NOISE_NAMES = re.compile(
     r"^(TOILET|SEPTIC TANK|TRANSFORMER|OVER ?HEAD WATER TANK|GUARD|GATE|RAMP|SECURITY)", re.I)
 
+# Land use by drawing-code prefix; infrastructure parcels are locked (non-selectable)
+PREFIX_LANDUSE = {
+    "i": ("Industrial", False),
+    "l": ("Logistics", False),
+    "u": ("Utility", True),
+    "c": ("Commercial", False),
+    "m": ("Mixed Use", False),
+    "cp": ("Infrastructure", True),
+    "t": ("Infrastructure", True),
+    "rt": ("Infrastructure", True),
+    "sif": ("Industrial", False),
+    "wh": ("Logistics", False),
+}
+LOCKED_NAME = re.compile(r"CUSTOMS|CHECKPOINT|SUBSTATION|POWER|GASIFICATION|VEHICLE PARK|WATER BODY|CAMP", re.I)
+
+
+def classify(code, name):
+    """(landUseType, isLocked) inferred from the drawing code prefix and name."""
+    land_use, locked = None, None
+    if code:
+        m = re.match(r"([a-z]+)", code)
+        if m and m.group(1) in PREFIX_LANDUSE:
+            land_use, locked = PREFIX_LANDUSE[m.group(1)]
+    if name and LOCKED_NAME.search(name):
+        locked = True
+        land_use = land_use or "Infrastructure"
+    return land_use, locked
+
 
 def parse_code_and_name(lines):
     code = None
@@ -239,6 +267,13 @@ def main():
             plot["code"] = code
         if name:
             plot["displayName"] = name
+        land_use, locked = classify(plot["code"], name)
+        if land_use:
+            plot["landUseType"] = land_use
+        if locked is not None:
+            plot["isLocked"] = locked
+            if locked:
+                plot["status"] = "Unavailable"
         used_codes.add(plot["code"])
 
     print(f"Rescaled {rescaled} parcels to true metres; real drawing codes applied to {renamed}.")

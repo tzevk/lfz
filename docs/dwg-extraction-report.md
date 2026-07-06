@@ -17,15 +17,13 @@
    vertices on the **PLOT AREA** layer. Because the closed flag is lost,
    closure is detected geometrically (coincident first/last vertex is stripped;
    remaining rings are treated as closed polygons).
-3. **Extent filter.** The drawing covers more than Phase 1A and contains no
-   phase-boundary layer (verified against every layer in the drawing — the only
-   boundary-named layers are the small “00 Port Boundary” sub-area and a legend
-   rectangle). The extent is therefore supplied as a WKT polygon
-   (`--extent-wkt phase1a-extent.wkt`): a calibrated concave envelope of the
-   verified Phase 1A parcel set (4 parts, 10 m margin) that reproduces the
-   parcel set exactly and deterministically. If an official phase-boundary
-   polygon becomes available, drop its WKT into the same file — no code change.
-   (A legacy `--extent-max-x` centroid cut-off remains as a fallback.)
+3. **Coverage & phase tagging.** Extraction is **zone-wide** (no extent filter):
+   every developable parcel in the drawing is seeded. Phases are then tagged by
+   `tools/tag_phases.py` using extent polygons (currently `phase1a-extent.wkt`
+   → “Phase 1A”, remainder “Future Phases”; add further phase WKTs to the
+   script's `PHASE_EXTENTS` list as boundaries become available — no code
+   change elsewhere). The extractor's `--extent-wkt` / `--extent-max-x` options
+   remain for extracting a single phase in isolation.
 4. **Sliver filter.** Parcels below **0.1 ha** are drawing artefacts and removed.
 5. **Deduplication.** Duplicate rings (identical rounded centroid + area,
    overdrawn outlines) are collapsed.
@@ -50,9 +48,15 @@
 | Stage | Count |
 | --- | ---: |
 | Rings on layer `PLOT AREA` (whole drawing) | **414** |
-| Within Phase 1A extent polygon | 119 |
-| ≥ 0.1 ha (sliver filter) | 66 |
-| After deduplication — **seeded parcels** | **55** |
+| ≥ 0.1 ha (sliver filter) | 137 |
+| After deduplication — **seeded parcels (complete zone)** | **124** |
+| — tagged Phase 1A | 55 |
+| — tagged Future Phases | 69 |
+| Real drawing codes recovered | 91 |
+| Land-use classified from code prefix (i/l/u/c/m/cp/t) | 124 |
+| Locked (infrastructure/utility) | 8 |
+
+Total seeded area: **509.9 ha** (true metres).
 
 Largest parcels (codes/names from the drawing labels; locked = non-selectable):
 
@@ -68,9 +72,9 @@ Largest parcels (codes/names from the drawing labels; locked = non-selectable):
 | i028 | Heavy Vehicle Park | 4.86 | ✔ |
 | l004 | Customs CP1 | 4.78 | ✔ |
 | i002 | Customs CP2 | 4.57 | ✔ |
-| … | 32 more labelled + 13 unlabelled (IND-nnn) | 0.66–4.46 | |
+| … | 81 more labelled + 33 unlabelled (IND-nnn) | 0.1–4.5 | |
 
-Total seeded area: **219.2 ha** (true metres).
+(See the results table above for zone-wide counts.)
 
 ## Units and coordinate spaces
 
@@ -94,9 +98,10 @@ Total seeded area: **219.2 ha** (true metres).
 ```bash
 .venv-cad/bin/python tools/convert_dwg_to_dxf.py "<new drawing>.dwg" masterplan.dxf
 cd tools/LFZ.Tools.PlotExtractor
-dotnet run -- ../../masterplan.dxf --extent-wkt phase1a-extent.wkt
+dotnet run -- ../../masterplan.dxf --codes none        # complete zone
 cp out/plots-seed.json ../../src/LFZ.Infrastructure/Seed/plots-seed.json
-python3 ../extract_plot_labels.py    # real codes/names + true-metre scale (reads the DWG)
+python3 ../tag_phases.py             # phase tagging from extent WKTs
+python3 ../extract_plot_labels.py    # real codes/names/land-use + true-metre scale (reads the DWG)
 python3 ../extract_hatch_colors.py   # land-use hatch colours (reads the DWG)
 python3 ../build_prototype.py        # refresh the standalone prototype
 ```
@@ -105,15 +110,14 @@ Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs
 
 ## Known caveats
 
-1. **Extent polygon provenance.** `phase1a-extent.wkt` is derived from the
-   verified parcel set (union + 10 m margin), not from an official phase
-   boundary — the DWG does not contain one. It is deterministic and exact for
-   the current drawing; replace the file with the official boundary WKT when
-   the drawing office provides it.
-2. **Labels.** Resolved: real drawing codes/names are recovered from the DWG
-   model space by `extract_plot_labels.py` (42 of 55 parcels). The remaining 13
-   parcels genuinely carry no ID label in the drawing and keep synthesised
-   `IND-nnn` codes; they can be renamed in the Admin UI.
+1. **Phase boundaries.** The DWG contains no official phase-boundary layer.
+   `phase1a-extent.wkt` is derived from the verified Phase 1A parcel set;
+   parcels outside it are tagged “Future Phases”. Supply official phase
+   polygons to `tag_phases.py` for finer phase attribution.
+2. **Labels.** Real drawing codes/names are recovered from the DWG model space
+   by `extract_plot_labels.py` (91 of 124 parcels). The remaining 33 parcels
+   carry no ID label in the drawing and keep synthesised `IND-nnn` codes; they
+   can be renamed in the Admin UI.
 3. **Hatch colours.** The DWG contains **no per-plot colour fills** — the
    PDF's plot colouring is a publishing artefact. The DWG does carry legend
    swatch hatches on the `LU_*` layers; `tools/extract_hatch_colors.py` reads

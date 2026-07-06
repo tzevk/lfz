@@ -71,18 +71,19 @@ dotnet test
 ## DWG extraction (data-only maintenance)
 
 ```bash
-python3 -m venv .venv-cad && .venv-cad/bin/pip install aspose-cad   # once
+python3 -m venv .venv-cad && .venv-cad/bin/pip install aspose-cad shapely ezdxf   # once
 .venv-cad/bin/python tools/convert_dwg_to_dxf.py "<drawing>.dwg" masterplan.dxf
 cd tools/LFZ.Tools.PlotExtractor
-dotnet run -- ../../masterplan.dxf --extent-wkt phase1a-extent.wkt
+dotnet run -- ../../masterplan.dxf --codes none        # complete zone, all phases
 cp out/plots-seed.json ../../src/LFZ.Infrastructure/Seed/plots-seed.json
-python3 ../extract_plot_labels.py    # real plot codes/names + true-metre scale
+python3 ../tag_phases.py             # tag phases from extent WKTs
+python3 ../extract_plot_labels.py    # real plot codes/names/land-use + true-metre scale
 python3 ../extract_hatch_colors.py   # land-use hatch colours from the DWG legend
 python3 ../build_prototype.py        # refresh LFZ-prototype.html
 ```
 
 See [docs/dwg-extraction-report.md](docs/dwg-extraction-report.md) for the full
-methodology and current results (414 rings → 55 seeded parcels).
+methodology and current results (414 rings → 124 seeded parcels, complete zone).
 
 ## Deploy to Azure
 
