@@ -1,0 +1,12 @@
+[
+  { "rank": 1,  "code": "e001", "name": "Existing Development",   "isLocked": true,  "landUseType": "Existing" },
+  { "rank": 2,  "code": "i001", "name": "Insignia",               "isLocked": false, "landUseType": "Industrial" },
+  { "rank": 3,  "code": "r001", "name": "Raffles",                "isLocked": false, "landUseType": "Industrial" },
+  { "rank": 4,  "code": "k001", "name": "Kellogg's",              "isLocked": false, "landUseType": "Industrial" },
+  { "rank": 5,  "code": "a001", "name": "TG Arla",                "isLocked": false, "landUseType": "Industrial" },
+  { "rank": 6,  "code": "c001", "name": "TG Colgate Phase I",     "isLocked": false, "landUseType": "Industrial" },
+  { "rank": 7,  "code": "c002", "name": "TG Colgate Phase II",    "isLocked": false, "landUseType": "Industrial" },
+  { "rank": 8,  "code": "h001", "name": "Heavy Vehicle Park",     "isLocked": true,  "landUseType": "Infrastructure" },
+  { "rank": 9,  "code": "cp01", "name": "Customs CP1",            "isLocked": true,  "landUseType": "Infrastructure" },
+  { "rank": 10, "code": "cp02", "name": "Customs CP2",            "isLocked": true,  "landUseType": "Infrastructure" }
+]

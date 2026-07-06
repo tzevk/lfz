@@ -1,0 +1,7 @@
+bin/
+obj/
+.venv-cad/
+out/
+masterplan.dxf
+*.user
+.DS_Store
