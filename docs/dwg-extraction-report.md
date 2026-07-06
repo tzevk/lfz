@@ -29,11 +29,21 @@
 4. **Sliver filter.** Parcels below **0.1 ha** are drawing artefacts and removed.
 5. **Deduplication.** Duplicate rings (identical rounded centroid + area,
    overdrawn outlines) are collapsed.
-6. **Code assignment.** Parcels are ranked by area. The largest receive stable
-   codes/names seeded from the PDF legend
-   (`tools/LFZ.Tools.PlotExtractor/seed-codes.json`); the rest receive
-   synthesised `IND-nnn` codes that can be renamed once a label-bearing DXF
-   export is available.
+6. **Code assignment.** Plot codes and names are recovered from the DWG itself
+   by `tools/extract_plot_labels.py`: the DWG model space carries the true-scale
+   `PLOT AREA` rings and the plot ID labels (MTEXT/TEXT such as
+   `I 004 / 54961 SQ.M`). Each seeded parcel is matched to its model ring by a
+   scale-invariant shape fingerprint (vertex count + isoperimetric factor);
+   the label inside the ring supplies the drawing code and display name.
+   42 of 55 parcels carry real drawing codes (duplicated codes on the plan get
+   a `b`/`c` suffix); the 13 parcels with no label in the drawing keep
+   synthesised `IND-nnn` codes.
+
+7. **Scale correction.** Matching also revealed that the aspose DXF export
+   scales geometry by ≈ 0.3917 (k = 2.5533 back to true metres, stdev 0.015,
+   53 matched parcels). The label recovery step rescales `svgPath`,
+   `centroid`, `boundaryWkt` and `areaHectares` to true metres — confirmed by
+   the drawing's own quoted areas (e.g. ring labelled `338259 SQ.M` → 33.83 ha).
 
 ## Results
 
@@ -44,25 +54,29 @@
 | ≥ 0.1 ha (sliver filter) | 66 |
 | After deduplication — **seeded parcels** | **55** |
 
-Named parcels (locked = non-selectable infrastructure):
+Largest parcels (codes/names from the drawing labels; locked = non-selectable):
 
 | Code | Name | Area (ha) | Locked |
 | --- | --- | ---: | :-: |
-| e001 | Existing Development | 5.19 | ✔ |
-| i001 | Insignia | 3.84 | |
-| r001 | Raffles | 1.28 | |
-| k001 | Kellogg's | 0.92 | |
-| a001 | TG Arla | 0.92 | |
-| c001 | TG Colgate Phase I | 0.84 | |
-| c002 | TG Colgate Phase II | 0.77 | |
-| h001 | Heavy Vehicle Park | 0.75 | ✔ |
-| cp01 | Customs CP1 | 0.73 | ✔ |
-| cp02 | Customs CP2 | 0.70 | ✔ |
-| IND-001…IND-045 | Industrial plots | 0.10–0.68 | |
+| l005 | L2E Tower (Inland Port Logistics) | 33.83 | ✔ |
+| i011 | Future Industry | 25.03 | |
+| i009 | LFZ Camp | 8.32 | |
+| i003 | Raffles | 6.02 | |
+| i004 | TG Arla | 6.00 | |
+| i004b | TG Colgate Phase I | 5.50 | |
+| c002 | Carton Factory | 5.00 | |
+| i028 | Heavy Vehicle Park | 4.86 | ✔ |
+| l004 | Customs CP1 | 4.78 | ✔ |
+| i002 | Customs CP2 | 4.57 | ✔ |
+| … | 32 more labelled + 13 unlabelled (IND-nnn) | 0.66–4.46 | |
+
+Total seeded area: **219.2 ha** (true metres).
 
 ## Units and coordinate spaces
 
-- Raw drawing units are **centimetres** (1 unit = 0.01 m). Polygon area / 10⁸ = hectares.
+- Raw DXF-export units are **centimetres at 0.3917× scale** (the aspose export
+  shrinks the drawing); `extract_plot_labels.py` rescales the seed to **true
+  plan metres** using the model-space rings. Polygon area / 10⁴ = hectares.
 - `Plots.Boundary` (WKT → SQL `geometry`): plan **metres**, original CAD
   orientation, SRID 0.
 - `Plots.SvgPath`: plan metres, **y-flipped** (`y' = maxY − y`) and normalised
@@ -82,7 +96,8 @@ Named parcels (locked = non-selectable infrastructure):
 cd tools/LFZ.Tools.PlotExtractor
 dotnet run -- ../../masterplan.dxf --extent-wkt phase1a-extent.wkt
 cp out/plots-seed.json ../../src/LFZ.Infrastructure/Seed/plots-seed.json
-python3 ../extract_hatch_colors.py   # land-use hatch colours (reads the DWG directly)
+python3 ../extract_plot_labels.py    # real codes/names + true-metre scale (reads the DWG)
+python3 ../extract_hatch_colors.py   # land-use hatch colours (reads the DWG)
 python3 ../build_prototype.py        # refresh the standalone prototype
 ```
 
@@ -95,9 +110,10 @@ Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs
    boundary — the DWG does not contain one. It is deterministic and exact for
    the current drawing; replace the file with the official boundary WKT when
    the drawing office provides it.
-2. **Labels.** Plot codes for unnamed parcels are synthesised (`IND-nnn`).
-   Re-ingesting a label-bearing DXF export lets them be renamed via the Admin
-   UI or a fresh extraction (codes are stable per run, ranked by area).
+2. **Labels.** Resolved: real drawing codes/names are recovered from the DWG
+   model space by `extract_plot_labels.py` (42 of 55 parcels). The remaining 13
+   parcels genuinely carry no ID label in the drawing and keep synthesised
+   `IND-nnn` codes; they can be renamed in the Admin UI.
 3. **Hatch colours.** The DWG contains **no per-plot colour fills** — the
    PDF's plot colouring is a publishing artefact. The DWG does carry legend
    swatch hatches on the `LU_*` layers; `tools/extract_hatch_colors.py` reads

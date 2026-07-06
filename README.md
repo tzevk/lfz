@@ -76,6 +76,7 @@ python3 -m venv .venv-cad && .venv-cad/bin/pip install aspose-cad   # once
 cd tools/LFZ.Tools.PlotExtractor
 dotnet run -- ../../masterplan.dxf --extent-wkt phase1a-extent.wkt
 cp out/plots-seed.json ../../src/LFZ.Infrastructure/Seed/plots-seed.json
+python3 ../extract_plot_labels.py    # real plot codes/names + true-metre scale
 python3 ../extract_hatch_colors.py   # land-use hatch colours from the DWG legend
 python3 ../build_prototype.py        # refresh LFZ-prototype.html
 ```
