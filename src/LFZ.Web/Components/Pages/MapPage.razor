@@ -1,0 +1,176 @@
+@page "/"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanViewDashboard")]
+@using System.Security.Claims
+@using LFZ.Web.Components.Shared
+@inject PlotQueryService Queries
+@inject PlotCommandService Commands
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>LFZ Map</PageTitle>
+
+<div class="map-page">
+    <section class="map-panel">
+        <div class="filters">
+            <select @bind="_statusFilter" @bind:after="ReloadAsync">
+                <option value="">All statuses</option>
+                <option value="Free">Free</option>
+                <option value="PendingReview">Pending review</option>
+                <option value="Occupied">Occupied</option>
+                <option value="Blocked">Blocked</option>
+                <option value="Unavailable">Unavailable</option>
+            </select>
+            <input placeholder="Search code / name / tenant…" @bind="_search" @bind:after="ReloadAsync" />
+        </div>
+        <PlotMap Plots="_plots" SelectedPlotId="_selected?.Id" OnPlotSelected="SelectPlotAsync" />
+    </section>
+
+    <aside class="detail-panel">
+        @if (_selected is null)
+        {
+            <p class="placeholder">Select a plot on the map to see details and actions.</p>
+        }
+        else
+        {
+            <h2>@_selected.Code</h2>
+            <p class="plot-name">@_selected.DisplayName</p>
+            <dl>
+                <dt>Status</dt><dd><span class="badge @_selected.Status.ToLowerInvariant()">@_selected.Status</span></dd>
+                <dt>Land use</dt><dd>@_selected.LandUseType</dd>
+                <dt>Area</dt><dd>@_selected.AreaHectares.ToString("F2") ha</dd>
+                @if (_selected.CurrentTenant is not null)
+                {
+                    <dt>Tenant</dt><dd>@_selected.CurrentTenant.Name</dd>
+                }
+                @if (_selected.TenantBlocks.Count > 0)
+                {
+                    <dt>Blocked for</dt>
+                    <dd>@string.Join(", ", _selected.TenantBlocks.Select(b => b.TenantName))</dd>
+                }
+            </dl>
+
+            @if (_error is not null)
+            {
+                <div class="alert">@_error</div>
+            }
+
+            <AuthorizeView Policy="CanRequestPlot" Context="requestCtx">
+                @if (_selected.Status == "Free")
+                {
+                    <div class="action-group">
+                        <h3>Submit request</h3>
+                        <select @bind="_tenantId">
+                            <option value="0">— choose tenant —</option>
+                            @foreach (var tenant in _tenants)
+                            {
+                                <option value="@tenant.Id">@tenant.Name</option>
+                            }
+                        </select>
+                        <input placeholder="Intended use" @bind="_intendedUse" />
+                        <button class="btn btn-primary" @onclick="SubmitRequestAsync">Request plot</button>
+                    </div>
+                }
+            </AuthorizeView>
+
+            <AuthorizeView Policy="CanAllocatePlot" Context="allocCtx">
+                @if (_selected.Status == "Free")
+                {
+                    <div class="action-group">
+                        <h3>Direct actions</h3>
+                        <select @bind="_tenantId">
+                            <option value="0">— choose tenant —</option>
+                            @foreach (var tenant in _tenants)
+                            {
+                                <option value="@tenant.Id">@tenant.Name</option>
+                            }
+                        </select>
+                        <div class="btn-row">
+                            <button class="btn" @onclick="AllocateAsync">Allocate</button>
+                            <button class="btn" @onclick="BlockAsync">Block</button>
+                        </div>
+                    </div>
+                }
+            </AuthorizeView>
+
+            <AuthorizeView Policy="CanManageSettings" Context="adminCtx">
+                @if (_selected.Status is "Occupied" or "Blocked")
+                {
+                    <div class="action-group">
+                        <h3>Admin</h3>
+                        <button class="btn btn-danger" @onclick="ReleaseAsync">Release plot</button>
+                    </div>
+                }
+            </AuthorizeView>
+        }
+    </aside>
+</div>
+
+@code {
+    private IReadOnlyList<PlotDto> _plots = Array.Empty<PlotDto>();
+    private IReadOnlyList<TenantDto> _tenants = Array.Empty<TenantDto>();
+    private PlotDto? _selected;
+    private string _statusFilter = string.Empty;
+    private string _search = string.Empty;
+    private int _tenantId;
+    private string? _intendedUse;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _tenants = await Queries.GetTenantsAsync();
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _plots = await Queries.GetPlotsAsync(
+            string.IsNullOrWhiteSpace(_statusFilter) ? null : _statusFilter,
+            search: string.IsNullOrWhiteSpace(_search) ? null : _search);
+
+        if (_selected is not null)
+        {
+            _selected = _plots.FirstOrDefault(plot => plot.Id == _selected.Id);
+        }
+    }
+
+    private Task SelectPlotAsync(PlotDto plot)
+    {
+        _selected = plot;
+        _error = null;
+        return Task.CompletedTask;
+    }
+
+    private Task SubmitRequestAsync() => RunCommandAsync(async userId =>
+        await Commands.SubmitRequestAsync(new CreatePlotRequestDto
+        {
+            PlotId = _selected!.Id,
+            TenantId = _tenantId,
+            RequestType = PlotRequestType.Allocate,
+            IntendedUse = _intendedUse
+        }, userId));
+
+    private Task AllocateAsync() => RunCommandAsync(userId =>
+        Commands.AllocateAsync(_selected!.Id, new DirectAllocatePlotDto { TenantId = _tenantId }, userId));
+
+    private Task BlockAsync() => RunCommandAsync(userId =>
+        Commands.BlockAsync(_selected!.Id, new BlockPlotDto { TenantId = _tenantId }, userId));
+
+    private Task ReleaseAsync() => RunCommandAsync(userId =>
+        Commands.ReleaseAsync(_selected!.Id, new ReleasePlotDto(), userId));
+
+    private async Task RunCommandAsync(Func<string, Task> command)
+    {
+        _error = null;
+        try
+        {
+            var authState = await AuthState.GetAuthenticationStateAsync();
+            var userId = authState.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? throw new InvalidOperationException("User id not found.");
+            await command(userId);
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
+        {
+            _error = exception.Message;
+        }
+    }
+}

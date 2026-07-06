@@ -1,0 +1,47 @@
+@page "/admin/settings"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanManageSettings")]
+@using LFZ.Application.Abstractions
+@using LFZ.Domain.Entities
+@using Microsoft.EntityFrameworkCore
+@inject IApplicationDbContext Db
+
+<PageTitle>Admin settings</PageTitle>
+
+<h1>Application settings</h1>
+
+@if (_saved)
+{
+    <div class="alert success">Saved.</div>
+}
+
+<table class="table">
+    <thead><tr><th>Key</th><th>Value</th><th>Type</th><th>Description</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var setting in _settings)
+        {
+            <tr>
+                <td>@setting.Key</td>
+                <td><input @bind="setting.Value" /></td>
+                <td>@setting.ValueType</td>
+                <td>@setting.Description</td>
+                <td><button class="btn btn-primary" @onclick="() => SaveAsync(setting)">Save</button></td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<AppSetting> _settings = new();
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await Db.AppSettings.OrderBy(setting => setting.Key).ToListAsync();
+    }
+
+    private async Task SaveAsync(AppSetting setting)
+    {
+        await Db.SaveChangesAsync();
+        _saved = true;
+    }
+}

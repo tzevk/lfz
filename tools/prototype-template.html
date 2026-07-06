@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LFZ Plot Management — Interactive Prototype</title>
+<style>
+  :root {
+    --free:#5bbf72; --pending:#9b7bd1; --occupied:#3b82c4; --blocked:#f0b84d; --locked:#9ca3af;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#1f2937; background:#f3f4f6; display:flex; flex-direction:column; height:100vh; }
+  header { background:#0f2c4c; color:#fff; padding:.6rem 1.2rem; display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap; }
+  header .brand { font-weight:700; }
+  header .brand small { font-weight:300; opacity:.75; margin-left:.4rem; }
+  header label { font-size:.85rem; opacity:.9; }
+  header select, header input, header button { padding:.35rem .6rem; border-radius:6px; border:1px solid #35506e; background:#16406e; color:#fff; }
+  header button { cursor:pointer; }
+  main { flex:1; display:grid; grid-template-columns:1fr 330px; gap:1rem; padding:1rem; min-height:0; }
+  #map-panel { background:#fff; border-radius:8px; padding:.8rem; display:flex; flex-direction:column; min-height:0; }
+  svg { flex:1; width:100%; min-height:0; background:#eef2f6; border-radius:6px; }
+  path.plot { stroke:#334155; stroke-width:2; cursor:pointer; fill-opacity:.75; transition:fill-opacity .12s; }
+  path.plot:hover { fill-opacity:1; }
+  path.plot.selected { stroke:#111; stroke-width:5; fill-opacity:1; }
+  path.plot.Free { fill:var(--free); }
+  path.plot.PendingReview { fill:var(--pending); }
+  path.plot.Occupied { fill:var(--occupied); }
+  path.plot.Blocked { fill:var(--blocked); }
+  path.plot.Unavailable, path.plot.lockedp { fill:var(--locked); cursor:default; pointer-events:none; }
+  .legend { display:flex; gap:1rem; padding-top:.5rem; font-size:.85rem; flex-wrap:wrap; }
+  .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:4px; }
+  aside { background:#fff; border-radius:8px; padding:1rem; overflow-y:auto; }
+  aside h2 { margin:.1rem 0; }
+  aside .muted { color:#6b7280; }
+  dl { display:grid; grid-template-columns:auto 1fr; gap:.3rem .8rem; font-size:.92rem; }
+  dt { font-weight:600; } dd { margin:0; }
+  .badge { padding:.15rem .55rem; border-radius:999px; color:#fff; font-size:.8rem; }
+  .badge.Free{background:var(--free)} .badge.PendingReview{background:var(--pending)}
+  .badge.Occupied{background:var(--occupied)} .badge.Blocked{background:var(--blocked)} .badge.Unavailable{background:var(--locked)}
+  .actions { border-top:1px solid #e5e7eb; margin-top:1rem; padding-top:.8rem; display:flex; flex-direction:column; gap:.5rem; }
+  .actions h3 { margin:0; font-size:.95rem; }
+  .actions select, .actions input { padding:.4rem .6rem; border:1px solid #d1d5db; border-radius:6px; }
+  .btn { padding:.45rem .9rem; border:1px solid #d1d5db; background:#fff; border-radius:6px; cursor:pointer; }
+  .btn.primary { background:#0f2c4c; border-color:#0f2c4c; color:#fff; }
+  .btn.danger { background:#b91c1c; border-color:#b91c1c; color:#fff; }
+  .row { display:flex; gap:.5rem; }
+  .alert { background:#fef2f2; border:1px solid #fecaca; color:#991b1b; padding:.5rem .7rem; border-radius:6px; font-size:.85rem; }
+  .queue { border-top:1px solid #e5e7eb; margin-top:1rem; padding-top:.8rem; }
+  .queue-item { border:1px solid #e5e7eb; border-radius:6px; padding:.5rem .7rem; margin-bottom:.5rem; font-size:.85rem; }
+  .stats { display:flex; gap:.7rem; margin-bottom:.6rem; flex-wrap:wrap; }
+  .stat { background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:.4rem .9rem; font-size:.85rem; }
+  .stat b { display:block; font-size:1.15rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">LFZ Plot Management<small>standalone prototype — real DWG geometry, no backend</small></div>
+  <label>Role
+    <select id="role">
+      <option>Viewer</option>
+      <option>Requester</option>
+      <option selected>Allocator</option>
+      <option>Admin</option>
+    </select>
+  </label>
+  <label>Filter
+    <select id="statusFilter">
+      <option value="">All statuses</option>
+      <option>Free</option><option>PendingReview</option><option>Occupied</option>
+      <option>Blocked</option><option>Unavailable</option>
+    </select>
+  </label>
+  <input id="search" placeholder="Search code / name…" />
+  <button id="reset">Reset demo data</button>
+</header>
+<main>
+  <section id="map-panel">
+    <div class="stats" id="stats"></div>
+    <svg id="map" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend">
+      <span><i style="background:var(--free)"></i>Free</span>
+      <span><i style="background:var(--pending)"></i>Pending review</span>
+      <span><i style="background:var(--occupied)"></i>Occupied</span>
+      <span><i style="background:var(--blocked)"></i>Blocked</span>
+      <span><i style="background:var(--locked)"></i>Locked / unavailable</span>
+    </div>
+  </section>
+  <aside id="panel"><p class="muted">Select a plot on the map to see details and role-gated actions.</p></aside>
+</main>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// Real geometry extracted from the LFZ master-plan DWG by LFZ.Tools.PlotExtractor
+// ---------------------------------------------------------------------------
+const SEED = /*__PLOTS_JSON__*/[];
+
+const TENANTS = ["Acme Foods", "Delta Logistics", "Sunrise Textiles", "BlueWave Chemicals"];
+const LS_KEY = "lfz-prototype-state-v1";
+
+// Status workflow mirrors LFZ.Domain.Rules.PlotRules
+const RULES = {
+  canRequest: p => p.status === "Free" && !p.isLocked,
+  canAllocate: p => p.status === "Free" && !p.isLocked,
+  canBlock: p => p.status === "Free" && !p.isLocked,
+  canReview: p => p.status === "PendingReview",
+  canRelease: p => (p.status === "Occupied" || p.status === "Blocked") && !p.isLocked
+};
+const PERMS = {
+  Viewer:    { request:false, allocate:false, review:false, release:false },
+  Requester: { request:true,  allocate:false, review:false, release:false },
+  Allocator: { request:true,  allocate:true,  review:true,  release:false },
+  Admin:     { request:true,  allocate:true,  review:true,  release:true  }
+};
+
+let state = load();
+let selectedCode = null;
+
+function load() {
+  const saved = localStorage.getItem(LS_KEY);
+  if (saved) { try { return JSON.parse(saved); } catch { /* fallthrough */ } }
+  return freshState();
+}
+function freshState() {
+  return {
+    plots: SEED.map(p => ({
+      code: p.code, name: p.displayName, landUse: p.landUseType, area: p.areaHectares,
+      svg: p.svgPath, isLocked: p.isLocked,
+      status: p.isLocked ? "Unavailable" : "Free",
+      tenant: null, history: [], requests: []
+    })),
+    nextRequestId: 1
+  };
+}
+function save() { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+const svg = document.getElementById("map");
+
+function computeViewBox() {
+  let minX = 1e12, minY = 1e12, maxX = -1e12, maxY = -1e12;
+  for (const p of state.plots) {
+    const nums = p.svg.match(/-?\d+(\.\d+)?/g).map(Number);
+    for (let i = 0; i < nums.length; i += 2) {
+      minX = Math.min(minX, nums[i]); maxX = Math.max(maxX, nums[i]);
+      minY = Math.min(minY, nums[i+1]); maxY = Math.max(maxY, nums[i+1]);
+    }
+  }
+  const pad = 25;
+  return `${minX-pad} ${minY-pad} ${maxX-minX+2*pad} ${maxY-minY+2*pad}`;
+}
+
+function renderMap() {
+  const statusFilter = document.getElementById("statusFilter").value;
+  const term = document.getElementById("search").value.trim().toLowerCase();
+  svg.setAttribute("viewBox", computeViewBox());
+  svg.innerHTML = "";
+  for (const p of state.plots) {
+    if (statusFilter && p.status !== statusFilter) continue;
+    if (term && !(p.code.toLowerCase().includes(term) || p.name.toLowerCase().includes(term))) continue;
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("d", p.svg);
+    el.setAttribute("class",
+      `plot ${p.status}${p.isLocked ? " lockedp" : ""}${p.code === selectedCode ? " selected" : ""}`);
+    el.setAttribute("id", p.code);
+    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    title.textContent = `${p.code} — ${p.name} (${p.area.toFixed(2)} ha, ${p.status})`;
+    el.appendChild(title);
+    if (!p.isLocked) el.addEventListener("click", () => { selectedCode = p.code; renderAll(); });
+    svg.appendChild(el);
+  }
+}
+
+function renderStats() {
+  const counts = {};
+  for (const p of state.plots) counts[p.status] = (counts[p.status] || 0) + 1;
+  document.getElementById("stats").innerHTML =
+    `<div class="stat"><b>${state.plots.length}</b>plots</div>` +
+    ["Free","PendingReview","Occupied","Blocked","Unavailable"]
+      .map(s => `<div class="stat"><b>${counts[s] || 0}</b>${s}</div>`).join("");
+}
+
+function renderPanel() {
+  const role = document.getElementById("role").value;
+  const perms = PERMS[role];
+  const panel = document.getElementById("panel");
+  const p = state.plots.find(x => x.code === selectedCode);
+
+  let html = "";
+  if (!p) {
+    html = '<p class="muted">Select a plot on the map to see details and role-gated actions.</p>';
+  } else {
+    html = `<h2>${p.code}</h2><p class="muted">${p.name}</p>
+      <dl>
+        <dt>Status</dt><dd><span class="badge ${p.status}">${p.status}</span></dd>
+        <dt>Land use</dt><dd>${p.landUse}</dd>
+        <dt>Area</dt><dd>${p.area.toFixed(2)} ha</dd>
+        ${p.tenant ? `<dt>Tenant</dt><dd>${p.tenant}</dd>` : ""}
+      </dl>`;
+
+    const tenantSelect = id =>
+      `<select id="${id}">${TENANTS.map(t => `<option>${t}</option>`).join("")}</select>`;
+
+    if (perms.request && RULES.canRequest(p)) {
+      html += `<div class="actions"><h3>Submit request (Requester+)</h3>${tenantSelect("reqTenant")}
+        <button class="btn primary" onclick="submitRequest()">Request plot</button></div>`;
+    }
+    if (perms.allocate && RULES.canAllocate(p)) {
+      html += `<div class="actions"><h3>Direct actions (Allocator+)</h3>${tenantSelect("dirTenant")}
+        <div class="row"><button class="btn" onclick="allocate()">Allocate</button>
+        <button class="btn" onclick="block()">Block</button></div></div>`;
+    }
+    if (perms.review && RULES.canReview(p)) {
+      const req = p.requests.find(r => r.status === "Pending");
+      html += `<div class="actions"><h3>Review request (Allocator+)</h3>
+        <div class="muted">#${req?.id} for ${req?.tenant}</div>
+        <div class="row"><button class="btn primary" onclick="decide(true)">Approve</button>
+        <button class="btn danger" onclick="decide(false)">Reject</button></div></div>`;
+    }
+    if (perms.release && RULES.canRelease(p)) {
+      html += `<div class="actions"><h3>Admin</h3>
+        <button class="btn danger" onclick="release()">Release plot</button></div>`;
+    }
+    if (p.history.length) {
+      html += `<div class="queue"><h3>History</h3>` +
+        p.history.slice(-6).reverse().map(h =>
+          `<div class="queue-item">${h.at} — ${h.from} → ${h.to} <span class="muted">(${h.by})</span></div>`).join("") +
+        `</div>`;
+    }
+  }
+
+  // Global pending queue for reviewers
+  if (perms.review) {
+    const pending = state.plots.filter(x => x.status === "PendingReview");
+    if (pending.length) {
+      html += `<div class="queue"><h3>Pending queue (${pending.length})</h3>` +
+        pending.map(x =>
+          `<div class="queue-item"><a href="#" onclick="selectPlot('${x.code}');return false;">${x.code}</a> — ${x.name}</div>`).join("") +
+        `</div>`;
+    }
+  }
+  panel.innerHTML = html;
+}
+
+function renderAll() { renderMap(); renderStats(); renderPanel(); save(); }
+
+// ---------------------------------------------------------------------------
+// Workflow commands (mirror PlotCommandService)
+// ---------------------------------------------------------------------------
+function current() { return state.plots.find(x => x.code === selectedCode); }
+function transition(p, to, by) {
+  p.history.push({ from: p.status, to, by, at: new Date().toISOString().slice(0, 16).replace("T", " ") });
+  p.status = to;
+}
+window.selectPlot = code => { selectedCode = code; renderAll(); };
+window.submitRequest = () => {
+  const p = current(); if (!p || !RULES.canRequest(p)) return;
+  const tenant = document.getElementById("reqTenant").value;
+  p.requests.push({ id: state.nextRequestId++, tenant, status: "Pending" });
+  p.tenant = tenant;
+  transition(p, "PendingReview", document.getElementById("role").value);
+  renderAll();
+};
+window.allocate = () => {
+  const p = current(); if (!p || !RULES.canAllocate(p)) return;
+  p.tenant = document.getElementById("dirTenant").value;
+  transition(p, "Occupied", document.getElementById("role").value);
+  renderAll();
+};
+window.block = () => {
+  const p = current(); if (!p || !RULES.canBlock(p)) return;
+  p.tenant = document.getElementById("dirTenant").value;
+  transition(p, "Blocked", document.getElementById("role").value);
+  renderAll();
+};
+window.decide = approve => {
+  const p = current(); if (!p || !RULES.canReview(p)) return;
+  const req = p.requests.find(r => r.status === "Pending");
+  if (req) req.status = approve ? "Approved" : "Rejected";
+  if (!approve) p.tenant = null;
+  transition(p, approve ? "Occupied" : "Free", document.getElementById("role").value);
+  renderAll();
+};
+window.release = () => {
+  const p = current(); if (!p || !RULES.canRelease(p)) return;
+  p.tenant = null;
+  transition(p, "Free", document.getElementById("role").value);
+  renderAll();
+};
+
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
+document.getElementById("role").addEventListener("change", renderAll);
+document.getElementById("statusFilter").addEventListener("change", renderAll);
+document.getElementById("search").addEventListener("input", renderAll);
+document.getElementById("reset").addEventListener("click", () => {
+  localStorage.removeItem(LS_KEY); state = freshState(); selectedCode = null; renderAll();
+});
+renderAll();
+</script>
+</body>
+</html>

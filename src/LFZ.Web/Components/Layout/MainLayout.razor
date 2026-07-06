@@ -1,0 +1,30 @@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <header class="topbar">
+        <div class="brand">LFZ <span>Plot Management</span></div>
+        <nav>
+            <AuthorizeView Policy="CanViewDashboard">
+                <NavLink href="/" Match="NavLinkMatch.All">Map</NavLink>
+                <NavLink href="/dashboard">Dashboard</NavLink>
+            </AuthorizeView>
+            <AuthorizeView Policy="CanManageSettings">
+                <NavLink href="/admin/settings">Settings</NavLink>
+            </AuthorizeView>
+        </nav>
+        <div class="user-box">
+            <AuthorizeView>
+                <Authorized>
+                    <span class="user-name">@context.User.Identity?.Name</span>
+                    <form method="post" action="/account/logout">
+                        <AntiforgeryToken />
+                        <button type="submit" class="btn btn-link">Sign out</button>
+                    </form>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    </header>
+    <main>
+        @Body
+    </main>
+</div>

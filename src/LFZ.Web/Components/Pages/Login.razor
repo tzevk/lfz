@@ -1,0 +1,45 @@
+@page "/login"
+@layout EmptyLayout
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+@inject NavigationManager Navigation
+
+<div class="login-wrap">
+    <div class="login-card">
+        <h1>LFZ Plot Management</h1>
+        <p class="subtitle">Sign in with your internal account</p>
+
+        @if (Failed)
+        {
+            <div class="alert">Invalid email or password.</div>
+        }
+        @if (Locked)
+        {
+            <div class="alert">Account temporarily locked after repeated failures.</div>
+        }
+
+        <form method="post" action="/account/login">
+            <AntiforgeryToken />
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" required autofocus />
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" required />
+            <button type="submit" class="btn btn-primary">Sign in</button>
+        </form>
+
+        <div class="hint">
+            Pilot accounts: viewer@example.com / Viewer123 · requester@example.com / Requester123 ·
+            allocator@example.com / Allocator123 · admin@example.com / Admin123
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "failed")]
+    public int? FailedFlag { get; set; }
+
+    [SupplyParameterFromQuery(Name = "locked")]
+    public int? LockedFlag { get; set; }
+
+    private bool Failed => FailedFlag == 1;
+    private bool Locked => LockedFlag == 1;
+}

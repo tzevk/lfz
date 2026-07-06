@@ -1,0 +1,84 @@
+@using System.Globalization
+@using System.Text.RegularExpressions
+
+<div class="plot-map">
+    <svg viewBox="@ViewBox" preserveAspectRatio="xMidYMid meet">
+        @foreach (var plot in Plots)
+        {
+            <path d="@plot.SvgPath"
+                  class="plot @StatusClass(plot) @(plot.Id == SelectedPlotId ? "selected" : "") @(plot.IsLocked ? "locked" : "")"
+                  @onclick="() => HandleClick(plot)">
+                <title>@plot.Code — @plot.DisplayName (@plot.AreaHectares.ToString("F2") ha, @plot.Status)</title>
+            </path>
+        }
+    </svg>
+    <div class="legend">
+        <span><i class="swatch free"></i> Free</span>
+        <span><i class="swatch pending"></i> Pending review</span>
+        <span><i class="swatch occupied"></i> Occupied</span>
+        <span><i class="swatch blocked"></i> Blocked</span>
+        <span><i class="swatch locked"></i> Locked / unavailable</span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<PlotDto> Plots { get; set; } = Array.Empty<PlotDto>();
+
+    [Parameter]
+    public int? SelectedPlotId { get; set; }
+
+    [Parameter]
+    public EventCallback<PlotDto> OnPlotSelected { get; set; }
+
+    private string ViewBox { get; set; } = "0 0 1000 1000";
+
+    protected override void OnParametersSet()
+    {
+        ViewBox = ComputeViewBox();
+    }
+
+    private Task HandleClick(PlotDto plot)
+    {
+        // Locked plots (roads, common areas) are non-selectable
+        return plot.IsLocked ? Task.CompletedTask : OnPlotSelected.InvokeAsync(plot);
+    }
+
+    private static string StatusClass(PlotDto plot) => plot.Status switch
+    {
+        "Free" => "free",
+        "PendingReview" => "pending",
+        "Occupied" => "occupied",
+        "Blocked" => "blocked",
+        _ => "unavailable"
+    };
+
+    private string ComputeViewBox()
+    {
+        double minX = double.MaxValue, minY = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue;
+
+        foreach (var plot in Plots)
+        {
+            if (string.IsNullOrEmpty(plot.SvgPath)) continue;
+            foreach (Match match in Regex.Matches(plot.SvgPath, @"([ML])(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)"))
+            {
+                var x = double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+                var y = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
+                minX = Math.Min(minX, x); maxX = Math.Max(maxX, x);
+                minY = Math.Min(minY, y); maxY = Math.Max(maxY, y);
+            }
+        }
+
+        if (minX > maxX)
+        {
+            return "0 0 1000 1000";
+        }
+
+        const double pad = 25;
+        var width = maxX - minX + pad * 2;
+        var height = maxY - minY + pad * 2;
+        return string.Create(CultureInfo.InvariantCulture,
+            $"{minX - pad:F0} {minY - pad:F0} {width:F0} {height:F0}");
+    }
+}

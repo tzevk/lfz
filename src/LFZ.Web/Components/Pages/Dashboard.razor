@@ -1,0 +1,123 @@
+@page "/dashboard"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "CanViewDashboard")]
+@using System.Security.Claims
+@inject PlotQueryService Queries
+@inject PlotCommandService Commands
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>LFZ Dashboard</PageTitle>
+
+<h1>Dashboard</h1>
+
+@if (_summary is null)
+{
+    <p>Loading…</p>
+}
+else
+{
+    <div class="cards">
+        <div class="card">
+            <div class="card-value">@_summary.TotalPlots</div>
+            <div class="card-label">Total plots (@_summary.TotalAreaHectares.ToString("F1") ha)</div>
+        </div>
+        @foreach (var (status, count) in _summary.CountByStatus)
+        {
+            <div class="card">
+                <div class="card-value">@count</div>
+                <div class="card-label">@status (@_summary.AreaByStatus[status].ToString("F1") ha)</div>
+            </div>
+        }
+    </div>
+
+    <h2>Area by land use</h2>
+    <table class="table">
+        <thead><tr><th>Land use</th><th>Area (ha)</th></tr></thead>
+        <tbody>
+            @foreach (var (landUse, area) in _summary.AreaByLandUseType.OrderByDescending(kv => kv.Value))
+            {
+                <tr><td>@landUse</td><td>@area.ToString("F2")</td></tr>
+            }
+        </tbody>
+    </table>
+}
+
+<AuthorizeView Policy="CanAllocatePlot">
+    <h2>Pending requests</h2>
+    @if (_error is not null)
+    {
+        <div class="alert">@_error</div>
+    }
+    @if (_pending.Count == 0)
+    {
+        <p>No pending requests.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr><th>#</th><th>Plot</th><th>Tenant</th><th>Type</th><th>Intended use</th><th>Submitted</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var request in _pending)
+                {
+                    <tr>
+                        <td>@request.Id</td>
+                        <td>@request.PlotId</td>
+                        <td>@request.TenantId</td>
+                        <td>@request.RequestType</td>
+                        <td>@request.IntendedUse</td>
+                        <td>@request.CreatedAtUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td class="btn-row">
+                            <button class="btn btn-primary" @onclick="() => DecideAsync(request.Id, approve: true)">Approve</button>
+                            <button class="btn btn-danger" @onclick="() => DecideAsync(request.Id, approve: false)">Reject</button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</AuthorizeView>
+
+@code {
+    private PlotSummaryDto? _summary;
+    private IReadOnlyList<PlotRequestDto> _pending = Array.Empty<PlotRequestDto>();
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _summary = await Queries.GetSummaryAsync();
+        _pending = await Queries.GetPendingRequestsAsync();
+    }
+
+    private async Task DecideAsync(int requestId, bool approve)
+    {
+        _error = null;
+        try
+        {
+            var authState = await AuthState.GetAuthenticationStateAsync();
+            var userId = authState.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? throw new InvalidOperationException("User id not found.");
+
+            var dto = new ReviewPlotRequestDto();
+            if (approve)
+            {
+                await Commands.ApproveRequestAsync(requestId, dto, userId);
+            }
+            else
+            {
+                await Commands.RejectRequestAsync(requestId, dto, userId);
+            }
+
+            await ReloadAsync();
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or KeyNotFoundException)
+        {
+            _error = exception.Message;
+        }
+    }
+}

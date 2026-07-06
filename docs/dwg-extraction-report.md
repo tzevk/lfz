@@ -1,0 +1,94 @@
+# DWG extraction report — LFZ master plan
+
+**Source drawing:** `Masterplan-LFZ-1001-LFZ-A-MP-DWG-R00 (002).dwg 15-12-25 L(with hatch).dwg`
+**Reference:** `LFZ Master Plan .pdf` (legend used to seed plot names)
+**Pipeline:** `tools/convert_dwg_to_dxf.py` (aspose-cad) → `tools/LFZ.Tools.PlotExtractor` (.NET 8)
+**Extraction date:** 2026-07-07
+
+## Pipeline
+
+1. **DWG → DXF.** The DWG is converted with `aspose-cad` to an ASCII DXF
+   (R12 / AC1009, ~541 MB). The conversion is faithful for geometry but lossy in
+   two documented ways:
+   - the *closed* flag (group 70 bit 1) of POLYLINE entities is dropped, and
+   - text labels (plot codes) are stripped.
+2. **Stream parse.** `LFZ.Tools.PlotExtractor` stream-parses the DXF
+   (constant memory) and collects every POLYLINE/LWPOLYLINE ring with ≥ 3
+   vertices on the **PLOT AREA** layer. Because the closed flag is lost,
+   closure is detected geometrically (coincident first/last vertex is stripped;
+   remaining rings are treated as closed polygons).
+3. **Extent filter.** The drawing covers more than Phase 1A. The DWG contains
+   no Phase 1A boundary layer, so the extent is approximated by a centroid
+   cut-off `--extent-max-x 112667000` (raw units). Supply the real phase
+   polygon to make this exact.
+4. **Sliver filter.** Parcels below **0.1 ha** are drawing artefacts and removed.
+5. **Deduplication.** Duplicate rings (identical rounded centroid + area,
+   overdrawn outlines) are collapsed.
+6. **Code assignment.** Parcels are ranked by area. The largest receive stable
+   codes/names seeded from the PDF legend
+   (`tools/LFZ.Tools.PlotExtractor/seed-codes.json`); the rest receive
+   synthesised `IND-nnn` codes that can be renamed once a label-bearing DXF
+   export is available.
+
+## Results
+
+| Stage | Count |
+| --- | ---: |
+| Rings on layer `PLOT AREA` (whole drawing) | **414** |
+| Within Phase 1A extent (centroid X cut-off) | 278 |
+| ≥ 0.1 ha (sliver filter) | 66 |
+| After deduplication — **seeded parcels** | **55** |
+
+Named parcels (locked = non-selectable infrastructure):
+
+| Code | Name | Area (ha) | Locked |
+| --- | --- | ---: | :-: |
+| e001 | Existing Development | 5.19 | ✔ |
+| i001 | Insignia | 3.84 | |
+| r001 | Raffles | 1.28 | |
+| k001 | Kellogg's | 0.92 | |
+| a001 | TG Arla | 0.92 | |
+| c001 | TG Colgate Phase I | 0.84 | |
+| c002 | TG Colgate Phase II | 0.77 | |
+| h001 | Heavy Vehicle Park | 0.75 | ✔ |
+| cp01 | Customs CP1 | 0.73 | ✔ |
+| cp02 | Customs CP2 | 0.70 | ✔ |
+| IND-001…IND-045 | Industrial plots | 0.10–0.68 | |
+
+## Units and coordinate spaces
+
+- Raw drawing units are **centimetres** (1 unit = 0.01 m). Polygon area / 10⁸ = hectares.
+- `Plots.Boundary` (WKT → SQL `geometry`): plan **metres**, original CAD
+  orientation, SRID 0.
+- `Plots.SvgPath`: plan metres, **y-flipped** (`y' = maxY − y`) and normalised
+  to the extraction bounding box so browsers render it with no client-side
+  transform.
+
+## Outputs
+
+- `plots-seed.json` — consumed by `SeedData` at first startup (includes `boundaryWkt`).
+- `plots-seed.sql` — direct SQL Server insert script (`geometry::STGeomFromText`).
+- `preview.svg` — visual QA of the extracted parcels.
+
+## Re-running (data-only maintenance)
+
+```bash
+.venv-cad/bin/python tools/convert_dwg_to_dxf.py "<new drawing>.dwg" masterplan.dxf
+cd tools/LFZ.Tools.PlotExtractor
+dotnet run -- ../../masterplan.dxf --extent-max-x 112667000
+cp out/plots-seed.json ../../src/LFZ.Infrastructure/Seed/plots-seed.json
+python3 ../build_prototype.py   # refresh the standalone prototype
+```
+
+Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs.
+
+## Known caveats
+
+1. **Extent approximation.** The straight-line cut-off yields 55 parcels versus
+   the 56 counted against the true Phase 1A polygon; supply the phase boundary
+   geometry for an exact match.
+2. **Labels.** Plot codes for unnamed parcels are synthesised (`IND-nnn`).
+   Re-ingesting a label-bearing DXF export lets them be renamed via the Admin
+   UI or a fresh extraction (codes are stable per run, ranked by area).
+3. **Hatch colours.** Not extracted in this run; the `HatchColor` column exists
+   and can be populated by a future extractor pass.

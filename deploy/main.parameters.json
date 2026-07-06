@@ -1,0 +1,11 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": { "value": "lfz-prod" },
+    "sqlAdminLogin": { "value": "lfzadmin" },
+    "sqlAdminPassword": { "value": "CHANGE_ME_use_keyvault_reference" },
+    "jwtKey": { "value": "CHANGE_ME_32+chars_use_keyvault_reference" },
+    "appServiceSku": { "value": "B1" }
+  }
+}
