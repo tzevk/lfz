@@ -77,7 +77,8 @@ Named parcels (locked = non-selectable infrastructure):
 cd tools/LFZ.Tools.PlotExtractor
 dotnet run -- ../../masterplan.dxf --extent-max-x 112667000
 cp out/plots-seed.json ../../src/LFZ.Infrastructure/Seed/plots-seed.json
-python3 ../build_prototype.py   # refresh the standalone prototype
+python3 ../extract_hatch_colors.py   # land-use hatch colours (reads the DWG directly)
+python3 ../build_prototype.py        # refresh the standalone prototype
 ```
 
 Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs.
@@ -90,5 +91,12 @@ Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs
 2. **Labels.** Plot codes for unnamed parcels are synthesised (`IND-nnn`).
    Re-ingesting a label-bearing DXF export lets them be renamed via the Admin
    UI or a fresh extraction (codes are stable per run, ranked by area).
-3. **Hatch colours.** Not extracted in this run; the `HatchColor` column exists
-   and can be populated by a future extractor pass.
+3. **Hatch colours.** The DWG contains **no per-plot colour fills** — the
+   PDF's plot colouring is a publishing artefact. The DWG does carry legend
+   swatch hatches on the `LU_*` layers; `tools/extract_hatch_colors.py` reads
+   them directly from the DWG (aspose-cad object model, ACI → hex via ezdxf)
+   and applies them to plots by land-use class:
+   `Existing #FF00BF` (LU_Committed Devt), `Infrastructure #FFFF7F` (LU_Roads),
+   `Green #BFFF7F` (LU_Green x Open Space). Industrial plots have no legend
+   colour in the drawing, so their `HatchColor` stays null and the UI palette
+   from `AppSettings` applies.
