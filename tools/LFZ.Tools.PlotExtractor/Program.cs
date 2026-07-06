@@ -35,6 +35,7 @@ internal static class Program
         string layer = GetOption(args, "--layer") ?? "PLOT AREA";
         double minAreaHa = ParseDouble(GetOption(args, "--min-area-ha"), 0.1);
         double? extentMaxX = GetOption(args, "--extent-max-x") is { } s ? ParseDouble(s, 0) : null;
+        string? extentWktPath = GetOption(args, "--extent-wkt");
         string outDir = GetOption(args, "--out") ?? "out";
         string? codesPath = GetOption(args, "--codes");
         bool listLayers = args.Contains("--list-layers");
@@ -63,14 +64,29 @@ internal static class Program
         Console.WriteLine($"Polygon rings on layer '{layer}': {raw.Count}");
 
         // ------------------------------------------------------------------
-        // 2) Optional Phase-extent filter (centroid X cutoff in raw units)
+        // 2) Phase-extent filter: WKT boundary polygon (preferred) or X cutoff
         // ------------------------------------------------------------------
-        var inExtent = extentMaxX is null
-            ? raw
-            : raw.Where(p => p.Centroid().X <= extentMaxX.Value).ToList();
-        if (extentMaxX is not null)
+        List<DxfPolygon> inExtent;
+        if (extentWktPath is not null)
         {
+            if (!File.Exists(extentWktPath))
+            {
+                Console.Error.WriteLine($"Extent WKT not found: {extentWktPath}");
+                return 1;
+            }
+
+            var extent = WktPolygon.Parse(File.ReadAllText(extentWktPath));
+            inExtent = raw.Where(p => extent.Contains(p.Centroid())).ToList();
+            Console.WriteLine($"Within extent polygon '{Path.GetFileName(extentWktPath)}': {inExtent.Count}");
+        }
+        else if (extentMaxX is not null)
+        {
+            inExtent = raw.Where(p => p.Centroid().X <= extentMaxX.Value).ToList();
             Console.WriteLine($"Within extent (centroid X <= {extentMaxX.Value}): {inExtent.Count}");
+        }
+        else
+        {
+            inExtent = raw;
         }
 
         // ------------------------------------------------------------------
@@ -95,7 +111,7 @@ internal static class Program
 
         if (deduped.Count == 0)
         {
-            Console.Error.WriteLine("No parcels extracted; check --layer / --extent-max-x.");
+            Console.Error.WriteLine("No parcels extracted; check --layer / --extent-wkt / --extent-max-x.");
             return 1;
         }
 
@@ -295,7 +311,8 @@ internal static class Program
             Options:
               --layer <name>          Source layer (default: "PLOT AREA")
               --min-area-ha <n>       Sliver threshold in hectares (default: 0.1)
-              --extent-max-x <units>  Phase extent: keep parcels whose centroid X <= this raw-unit value
+              --extent-wkt <file>     Phase extent: WKT POLYGON in raw drawing units (preferred)
+              --extent-max-x <units>  Phase extent fallback: keep parcels whose centroid X <= this value
               --out <dir>             Output directory (default: ./out)
               --codes <file>          Seed-code JSON (default: seed-codes.json next to the exe)
               --list-layers           Print ring counts per layer and exit

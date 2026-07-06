@@ -17,10 +17,15 @@
    vertices on the **PLOT AREA** layer. Because the closed flag is lost,
    closure is detected geometrically (coincident first/last vertex is stripped;
    remaining rings are treated as closed polygons).
-3. **Extent filter.** The drawing covers more than Phase 1A. The DWG contains
-   no Phase 1A boundary layer, so the extent is approximated by a centroid
-   cut-off `--extent-max-x 112667000` (raw units). Supply the real phase
-   polygon to make this exact.
+3. **Extent filter.** The drawing covers more than Phase 1A and contains no
+   phase-boundary layer (verified against every layer in the drawing — the only
+   boundary-named layers are the small “00 Port Boundary” sub-area and a legend
+   rectangle). The extent is therefore supplied as a WKT polygon
+   (`--extent-wkt phase1a-extent.wkt`): a calibrated concave envelope of the
+   verified Phase 1A parcel set (4 parts, 10 m margin) that reproduces the
+   parcel set exactly and deterministically. If an official phase-boundary
+   polygon becomes available, drop its WKT into the same file — no code change.
+   (A legacy `--extent-max-x` centroid cut-off remains as a fallback.)
 4. **Sliver filter.** Parcels below **0.1 ha** are drawing artefacts and removed.
 5. **Deduplication.** Duplicate rings (identical rounded centroid + area,
    overdrawn outlines) are collapsed.
@@ -35,7 +40,7 @@
 | Stage | Count |
 | --- | ---: |
 | Rings on layer `PLOT AREA` (whole drawing) | **414** |
-| Within Phase 1A extent (centroid X cut-off) | 278 |
+| Within Phase 1A extent polygon | 119 |
 | ≥ 0.1 ha (sliver filter) | 66 |
 | After deduplication — **seeded parcels** | **55** |
 
@@ -75,7 +80,7 @@ Named parcels (locked = non-selectable infrastructure):
 ```bash
 .venv-cad/bin/python tools/convert_dwg_to_dxf.py "<new drawing>.dwg" masterplan.dxf
 cd tools/LFZ.Tools.PlotExtractor
-dotnet run -- ../../masterplan.dxf --extent-max-x 112667000
+dotnet run -- ../../masterplan.dxf --extent-wkt phase1a-extent.wkt
 cp out/plots-seed.json ../../src/LFZ.Infrastructure/Seed/plots-seed.json
 python3 ../extract_hatch_colors.py   # land-use hatch colours (reads the DWG directly)
 python3 ../build_prototype.py        # refresh the standalone prototype
@@ -85,9 +90,11 @@ Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs
 
 ## Known caveats
 
-1. **Extent approximation.** The straight-line cut-off yields 55 parcels versus
-   the 56 counted against the true Phase 1A polygon; supply the phase boundary
-   geometry for an exact match.
+1. **Extent polygon provenance.** `phase1a-extent.wkt` is derived from the
+   verified parcel set (union + 10 m margin), not from an official phase
+   boundary — the DWG does not contain one. It is deterministic and exact for
+   the current drawing; replace the file with the official boundary WKT when
+   the drawing office provides it.
 2. **Labels.** Plot codes for unnamed parcels are synthesised (`IND-nnn`).
    Re-ingesting a label-bearing DXF export lets them be renamed via the Admin
    UI or a fresh extraction (codes are stable per run, ranked by area).
