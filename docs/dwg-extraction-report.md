@@ -18,15 +18,16 @@
    closure is detected geometrically (coincident first/last vertex is stripped;
    remaining rings are treated as closed polygons).
 3. **Coverage & phase tagging.** Extraction is **zone-wide** (no extent filter):
-   every developable parcel in the drawing is seeded. Phases are tagged from the
-   **development-phase boundary rings found in the DWG itself**: the drawing
-   legend declares Phase 1A (278 ha), 1B (113 ha), 2 (122 ha) and 3 (246 ha),
-   and closed rings matching those areas exist in model space on layer “0”
-   (found at 276.4 / 115.9 / 132.0 ha). `extract_plot_labels.py` assigns each
-   parcel the tightest phase ring containing its centroid; Phase 3 has no
-   closed ring in the current drawing, so its parcels are tagged
-   “Phase 3 / Future”. (`tag_phases.py` remains as an extent-WKT fallback for
-   parcels that cannot be ring-matched.)
+   every developable parcel in the drawing is seeded. Phases are tagged from
+   the DWG's own **development-phase colour fills**: the plan carries SOLID
+   hatches per phase whose colours are fixed by the legend swatch column
+   (ACI 9 = Phase 1A, 153 = Phase 1B, 50/2 = Phase 2, 11 = Phase 3 — the same
+   grey/blue/yellow/salmon scheme visible in the published PDF). Hatches with
+   embedded boundary paths are used directly (Phase 2: 8.5 + 32.4 + 80.6 ha
+   ≈ legend 122 ha; Phase 3: 37 + 52.6 + 115.9 + 132 ha ≈ legend 246 ha);
+   associative hatches (Phase 1A/1B) are resolved to the phase-scale boundary
+   ring containing their seed point (276.4 ha ≈ legend 278; northern strip
+   167 ha). Each parcel gets the tightest containing fill.
 4. **Sliver filter.** Parcels below **0.1 ha** are drawing artefacts and removed.
 5. **Deduplication.** Duplicate rings (identical rounded centroid + area,
    overdrawn outlines) are collapsed.
@@ -53,10 +54,10 @@
 | Rings on layer `PLOT AREA` (whole drawing) | **414** |
 | ≥ 0.1 ha (sliver filter) | 137 |
 | After deduplication — **seeded parcels (complete zone)** | **124** |
-| — Phase 1A | 50 |
-| — Phase 1B | 2 |
-| — Phase 2 | 28 |
-| — Phase 3 / Future | 44 |
+| — Phase 1A | 40 |
+| — Phase 1B | 22 |
+| — Phase 2 | 29 |
+| — Phase 3 | 33 |
 | Real drawing codes recovered | 91 |
 | Land-use classified from code prefix (i/l/u/c/m/cp/t) | 124 |
 | Locked (infrastructure/utility) | 8 |
@@ -115,10 +116,10 @@ Truncate `Plots` (or use a fresh database) before restarting so the seed re-runs
 
 ## Known caveats
 
-1. **Phase 3 boundary.** Phases 1A/1B/2 are tagged from closed boundary rings
-   in the DWG; Phase 3 (246 ha per the legend) exists only as unclosed
-   linework, so its parcels are tagged “Phase 3 / Future”. A closed Phase 3
-   polygon from the drawing office would complete the attribution.
+1. **Phase gross vs parcel areas.** Legend figures are gross phase areas
+   (including roads/water); the seeded parcel-area sums per phase are lower
+   (1A 134 ha, 1B 85 ha, 2 129 ha, 3 159 ha). Parcels straddling a fill edge
+   are attributed by centroid — verify edge cases against the published PDF.
 2. **Labels.** Real drawing codes/names are recovered from the DWG model space
    by `extract_plot_labels.py` (91 of 124 parcels). The remaining 33 parcels
    carry no ID label in the drawing and keep synthesised `IND-nnn` codes; they

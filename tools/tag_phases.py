@@ -22,7 +22,7 @@ PHASE_EXTENTS = [
     # Add further phases here as boundary polygons become available:
     # ("Phase 1B", ROOT / "tools/LFZ.Tools.PlotExtractor/phase1b-extent.wkt"),
 ]
-FALLBACK_PHASE = "Phase 3 / Future"
+FALLBACK_PHASE = "Phase 3"
 
 seed = json.loads(SEED.read_text())
 extents = [
