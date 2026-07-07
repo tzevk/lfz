@@ -13,6 +13,11 @@ for item in seed:
 
 template = (root / "tools/prototype-template.html").read_text()
 html = template.replace("/*__PLOTS_JSON__*/[]", json.dumps(seed, separators=(",", ":")))
+
+context_path = root / "src/LFZ.Web/wwwroot/map-context.json"
+context = context_path.read_text() if context_path.exists() else "{}"
+html = html.replace("/*__CONTEXT_JSON__*/{}", context)
+
 out = root / "LFZ-prototype.html"
 out.write_text(html)
 print(f"Wrote {out} ({out.stat().st_size / 1024:.0f} KB, {len(seed)} plots)")

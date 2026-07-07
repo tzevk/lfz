@@ -7,6 +7,7 @@
 <style>
   :root {
     --free:#5bbf72; --pending:#9b7bd1; --occupied:#3b82c4; --blocked:#f0b84d; --locked:#9ca3af;
+    --phase-1a:#dcdcdc; --phase-1b:#7a8ed2; --phase-2:#ffff54; --phase-3:#e5937c;
   }
   * { box-sizing:border-box; }
   body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; color:#1f2937; background:#f3f4f6; display:flex; flex-direction:column; height:100vh; }
@@ -27,6 +28,17 @@
   path.plot.Occupied { fill:var(--occupied); }
   path.plot.Blocked { fill:var(--blocked); }
   path.plot.Unavailable, path.plot.lockedp { fill:var(--locked); cursor:default; pointer-events:none; }
+  path.plot.phase-view.Unavailable, path.plot.phase-view.lockedp { fill-opacity:.4; }
+  path.plot.phase-view.phase-Phase-1A { fill:var(--phase-1a); }
+  path.plot.phase-view.phase-Phase-1B { fill:var(--phase-1b); }
+  path.plot.phase-view.phase-Phase-2 { fill:var(--phase-2); }
+  path.plot.phase-view.phase-Phase-3 { fill:var(--phase-3); }
+  .ctx { pointer-events:none; }
+  .ctx-water { stroke:#5f9ed1; stroke-width:2.5; fill:none; }
+  .ctx-water.closed { fill:#cfe4f5; fill-opacity:.8; }
+  .ctx-roads { stroke:#9aa0a8; stroke-width:2; fill:none; }
+  .ctx-median { stroke:#c9cdd3; stroke-width:1.5; fill:none; }
+  .ctx-rail { stroke:#6b7280; stroke-width:2; fill:none; stroke-dasharray:14 8; }
   .legend { display:flex; gap:1rem; padding-top:.5rem; font-size:.85rem; flex-wrap:wrap; }
   .legend i { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:4px; }
   aside { background:#fff; border-radius:8px; padding:1rem; overflow-y:auto; }
@@ -55,6 +67,12 @@
 <body>
 <header>
   <div class="brand">LFZ Plot Management<small>standalone prototype — real DWG geometry, no backend</small></div>
+  <label>Map view
+    <select id="mapView">
+      <option value="phase" selected>Development phase (master plan)</option>
+      <option value="status">Plot status</option>
+    </select>
+  </label>
   <label>Role
     <select id="role">
       <option>Viewer</option>
@@ -77,11 +95,18 @@
   <section id="map-panel">
     <div class="stats" id="stats"></div>
     <svg id="map" preserveAspectRatio="xMidYMid meet"></svg>
-    <div class="legend">
+    <div class="legend" id="legend-status">
       <span><i style="background:var(--free)"></i>Free</span>
       <span><i style="background:var(--pending)"></i>Pending review</span>
       <span><i style="background:var(--occupied)"></i>Occupied</span>
       <span><i style="background:var(--blocked)"></i>Blocked</span>
+      <span><i style="background:var(--locked)"></i>Locked / unavailable</span>
+    </div>
+    <div class="legend" id="legend-phase" style="display:none">
+      <span><i style="background:var(--phase-1a)"></i>Phase 1A</span>
+      <span><i style="background:var(--phase-1b)"></i>Phase 1B</span>
+      <span><i style="background:var(--phase-2)"></i>Phase 2</span>
+      <span><i style="background:var(--phase-3)"></i>Phase 3</span>
       <span><i style="background:var(--locked)"></i>Locked / unavailable</span>
     </div>
   </section>
@@ -94,6 +119,9 @@
 // Real geometry extracted from the LFZ master-plan DWG by LFZ.Tools.PlotExtractor
 // ---------------------------------------------------------------------------
 const SEED = /*__PLOTS_JSON__*/[];
+
+// Roads, rail and waterway (incl. the port turning basin) extracted from the DWG
+const CONTEXT = /*__CONTEXT_JSON__*/{};
 
 const TENANTS = ["Acme Foods", "Delta Logistics", "Sunrise Textiles", "BlueWave Chemicals"];
 const LS_KEY = "lfz-prototype-state-v1";
@@ -125,7 +153,7 @@ function freshState() {
   return {
     plots: SEED.map(p => ({
       code: p.code, name: p.displayName, landUse: p.landUseType, area: p.areaHectares,
-      svg: p.svgPath, isLocked: p.isLocked,
+      phase: p.phase, svg: p.svgPath, isLocked: p.isLocked,
       status: p.isLocked ? "Unavailable" : "Free",
       tenant: null, history: [], requests: []
     })),
@@ -141,14 +169,16 @@ const svg = document.getElementById("map");
 
 function computeViewBox() {
   let minX = 1e12, minY = 1e12, maxX = -1e12, maxY = -1e12;
-  for (const p of state.plots) {
-    const nums = p.svg.match(/-?\d+(\.\d+)?/g).map(Number);
+  const scan = d => {
+    const nums = d.match(/-?\d+(\.\d+)?/g).map(Number);
     for (let i = 0; i < nums.length; i += 2) {
       minX = Math.min(minX, nums[i]); maxX = Math.max(maxX, nums[i]);
       minY = Math.min(minY, nums[i+1]); maxY = Math.max(maxY, nums[i+1]);
     }
-  }
-  const pad = 25;
+  };
+  for (const p of state.plots) scan(p.svg);
+  for (const group of Object.values(CONTEXT)) for (const d of group) scan(d);
+  const pad = 60;
   return `${minX-pad} ${minY-pad} ${maxX-minX+2*pad} ${maxY-minY+2*pad}`;
 }
 
@@ -157,13 +187,24 @@ function renderMap() {
   const term = document.getElementById("search").value.trim().toLowerCase();
   svg.setAttribute("viewBox", computeViewBox());
   svg.innerHTML = "";
+  // background context first (non-interactive)
+  for (const [group, paths] of Object.entries(CONTEXT)) {
+    for (const d of paths) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      el.setAttribute("d", d);
+      el.setAttribute("class", `ctx ctx-${group}${d.endsWith("Z") ? " closed" : ""}`);
+      svg.appendChild(el);
+    }
+  }
+  const mapView = document.getElementById("mapView").value;
   for (const p of state.plots) {
     if (statusFilter && p.status !== statusFilter) continue;
     if (term && !(p.code.toLowerCase().includes(term) || p.name.toLowerCase().includes(term))) continue;
     const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
     el.setAttribute("d", p.svg);
+    const phaseClass = mapView === "phase" ? ` phase-view phase-${(p.phase || "").replace(/\s+/g, "-")}` : "";
     el.setAttribute("class",
-      `plot ${p.status}${p.isLocked ? " lockedp" : ""}${p.code === selectedCode ? " selected" : ""}`);
+      `plot ${p.status}${phaseClass}${p.isLocked ? " lockedp" : ""}${p.code === selectedCode ? " selected" : ""}`);
     el.setAttribute("id", p.code);
     const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
     title.textContent = `${p.code} — ${p.name} (${p.area.toFixed(2)} ha, ${p.status})`;
@@ -296,6 +337,14 @@ window.release = () => {
 document.getElementById("role").addEventListener("change", renderAll);
 document.getElementById("statusFilter").addEventListener("change", renderAll);
 document.getElementById("search").addEventListener("input", renderAll);
+document.getElementById("mapView").addEventListener("change", () => {
+  const isPhase = document.getElementById("mapView").value === "phase";
+  document.getElementById("legend-phase").style.display = isPhase ? "" : "none";
+  document.getElementById("legend-status").style.display = isPhase ? "none" : "";
+  renderAll();
+});
+document.getElementById("legend-phase").style.display = "";
+document.getElementById("legend-status").style.display = "none";
 document.getElementById("reset").addEventListener("click", () => {
   localStorage.removeItem(LS_KEY); state = freshState(); selectedCode = null; renderAll();
 });

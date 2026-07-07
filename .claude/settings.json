@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import playwright\")",
+      "Bash(npx --yes playwright --version)",
+      "Bash(python3 tools/build_prototype.py)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Read(//tmp/shot/**)",
+      "Bash(npx playwright *)",
+      "Bash(node shot.js \"/Users/tanvikadam/lfz/LFZ-prototype.html\" /tmp/shot/prototype.png)",
+      "Read(//private/tmp/shot/**)",
+      "Bash(python3 -)",
+      "Bash(python3 -c ' *)"
+    ]
+  }
+}
